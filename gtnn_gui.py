@@ -200,8 +200,9 @@ class CustomMainWindow(QtWidgets.QMainWindow):
         self.stopLearnBtn.hide()
 
         self._dropdown_updateMode = QComboBox(self)
-        self._dropdown_updateMode.addItems(["routing", "combinatorial", "normal"])
-        self._dropdown_updateMode.setCurrentIndex(2)
+        # self._dropdown_updateMode.addItems(["routing", "combinatorial", "normal"])
+        self._dropdown_updateMode.addItems(["normal"])
+        self._dropdown_updateMode.setCurrentIndex(0)
         self.updateMode = self._dropdown_updateMode.currentText()
         self._dropdown_updateMode.currentTextChanged.connect(self.update_param)
 

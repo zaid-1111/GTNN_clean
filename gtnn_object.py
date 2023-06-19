@@ -1,3 +1,25 @@
+#  Washington University hereby grants to you a non-transferable,
+#  non-exclusive, royalty-free, non-commercial, research license to use and
+#  copy the computer code provided here (the �Software�).  You agree to
+#  include this license and the above copyright notice in all copies of the
+#  Software.  The Software may not be distributed, shared, or transferred to
+#  any third party.  This license does not grant any rights or licenses to
+#  any other patents, copyrights, or other forms of intellectual property
+#  owned or controlled by Washington University.  If interested in obtaining
+#  a commercial license, please contact Washington University's Office of
+#  Technology Management (otm@dom.wustl.edu).
+ 
+#  YOU AGREE THAT THE SOFTWARE PROVIDED HEREUNDER IS EXPERIMENTAL AND IS
+#  PROVIDED �AS IS�, WITHOUT ANY WARRANTY OF ANY KIND, EXPRESSED OR IMPLIED,
+#  INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY OR FITNESS FOR
+#  ANY PARTICULAR PURPOSE, OR NON-INFRINGEMENT OF ANY THIRD-PARTY PATENT,
+#  COPYRIGHT, OR ANY OTHER THIRD-PARTY RIGHT.  IN NO EVENT SHALL THE
+#  CREATORS OF THE SOFTWARE OR WASHINGTON UNIVERSITY BE LIABLE FOR ANY
+#  DIRECT, INDIRECT, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF OR IN
+#  ANY WAY CONNECTED WITH THE SOFTWARE, THE USE OF THE SOFTWARE, OR THIS
+#  AGREEMENT, WHETHER IN BREACH OF CONTRACT, TORT OR OTHERWISE, EVEN IF SUCH
+#  PARTY IS ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. YOU ALSO AGREE THAT
+#  THIS SOFTWARE WILL NOT BE USED FOR CLINICAL PURPOSES.
 from gtnn_config import arg_list
 import numpy as np
 import matplotlib.pyplot as plt
@@ -107,7 +129,7 @@ class GTNN:
             self.Q = genQ_txt(num_neuron=num_neuron, user_data_file=Qfile)
         else:
             self.Q = 1/neuron * (np.random.rand(neuron, neuron)-0.5)*np.logical_not(np.eye(neuron))
-            elf.Q = torch.tensor(self.Q)
+            self.Q = torch.tensor(self.Q)
     
     def init_mask(self):
         global neuron, duration
@@ -256,20 +278,33 @@ class GTNN:
         pass
 
     def plot_general(self):
+        norm = matplotlib.colors.Normalize()
         fig = plt.figure()
-        fig.tight_layout(pad=3)
-        # vp_ax = fig.add_subplot(2, 3, 1)
-        # vn_ax = fig.add_subplot(2, 3, 2)
-        # Q_ax = fig.add_subplot(2, 3, 3)
-        # enery_ax = fig.add_subplot(2, 3, 4)
-        vnorm = np.linalg.norm((self.vp_ev-self.vn_ev), axis=0)
-        vnorm_ax = fig.add_subplot(211)
-        vnorm_ax.plot(vnorm.reshape(-1))
+        fig.tight_layout(pad=5)
+        v_ax = fig.add_subplot(2, 1, 1)
+        vnorm_ax = fig.add_subplot(2, 1, 2)
 
-        v_ax = fig.add_subplot(212)
+        vnorm = np.linalg.norm((self.vp_ev-self.vn_ev), axis=0)
+        vnorm_ax.plot(vnorm.reshape(-1))
+        vnorm_ax.set_title('Evolution of Norm')
+        vnorm_ax.set_ylabel('Norm of Membrane Potential')
+        vnorm_ax.set_xlabel('time(n)')
+
         v_temp = self.vp_ev.T - self.vn_ev.T
         v_ax.plot(v_temp)
+        v_ax.set_title('Evolution of Membrane Potential')
+        v_ax.set_ylabel('Membrane Potential (mV)')
         plt.show()
         pass
+
+    def plot_adjacency(self):
+        norm = matplotlib.colors.Normalize()
+        fig = plt.figure()
+        Q_ax = fig.add_subplot(111)
+
+        Q_ax.imshow(self.Q.numpy(), norm=norm, cmap=plt.cm.hot)
+        Q_ax.axis('off')
+        Q_ax.set_title('Adjacency Matrix')
+        plt.show()
 
 

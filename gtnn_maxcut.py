@@ -24,12 +24,12 @@ import numpy as np
 import matplotlib.pylab as plt
 import matplotlib
 from gtnn_config import arg_list
-from gtnn_object import GTNN
+from gtnn_object import GTNN, get_num_neurons
 
-neuron = 800
+default_neuron = 800
 
-arg_list['NUM_NEURON'] = neuron
-arg_list['QFILE'] = './data/graphs/G15.txt'
+arg_list['NUM_NEURON'] = default_neuron
+arg_list['QFILE'] = './data/graphs/G31.txt'
 arg_list['VMAX'] = 1
 arg_list['DT'] = 0.001
 arg_list['TMAX'] = 10
@@ -39,6 +39,9 @@ arg_list['LAMBDA'] = 10
 arg_list['C'] = 1
 arg_list['VTH'] = 0
 
+# Get the neurons number from file first
+neuron = get_num_neurons(arg_list['QFILE'])
+arg_list['NUM_NEURON'] = neuron
 # Run in max cut mode
 en_maxcut = 1
 # GTNN Initialization
@@ -61,14 +64,12 @@ myGTNN.report_time()
 myGTNN.plot_general()
 
 # Continue running
-# Update time and input before calling update()
+# Update time and input before calling update
 arg_list['TMAX'] = 5
 b_temp = np.zeros((neuron, 1))
 myGTNN.update(b = b_temp.reshape(neuron,1))
 # Refresh the recording of membrane potential
 myGTNN.refresh_record()
-myGTNN.dimension_check()
 myGTNN.run(en_maxcut)
-myGTNN.report_maxcut()
 myGTNN.report_time()
 myGTNN.plot_general()

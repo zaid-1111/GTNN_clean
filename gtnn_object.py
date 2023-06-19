@@ -52,10 +52,15 @@ def max_cut(adj, v):
 
     return num_maxcut, num_converged
 
+def get_num_neurons(user_data_file=None):
+    user_data = np.loadtxt(user_data_file, max_rows=1, dtype=int)
+    return user_data[0]
+
+
 def genQ_txt(num_neuron=None, user_data_file=None):
     global arg_list
-    
-    user_data = np.loadtxt(user_data_file, skiprows=0, dtype=int)
+
+    user_data = np.loadtxt(user_data_file, skiprows=1, dtype=int)
     col = user_data[:,1].T - 1
     row = user_data[:,0].T - 1
     data = user_data[:,2].T

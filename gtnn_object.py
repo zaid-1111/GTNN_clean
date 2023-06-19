@@ -1,0 +1,343 @@
+from gtnn_config import arg_list
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+import numpy.matlib as matlab
+global neuron
+global duration
+from scipy.sparse import coo_matrix
+import torch
+import time
+plt.rcParams.update({'font.size': 20})
+
+def max_cut(adj, v):
+    v = v.reshape(arg_list['NUM_NEURON'],)
+    e = 1e-3
+    v[v > arg_list['VMAX'] - e] = 1
+    v[v < -arg_list['VMAX'] + e] = 0
+    num_converged = np.sum(v == 1) + np.sum(v == 0)
+    # 0 activation
+    v = v > 0
+    out = 2*np.outer(v, v)
+    i = matlab.repmat(v, arg_list['NUM_NEURON'], 1).T
+    j = matlab.repmat(v, arg_list['NUM_NEURON'], 1)
+    # print(j.shape)
+    # print(out.shape)
+    # print(out)
+    # print(j)
+    # print(i)
+    num_maxcut = np.sum(np.triu(adj * -(out-i-j)))
+
+    return num_maxcut, num_converged
+
+def genQ_txt(num_neuron=None, user_data_file=None):
+    global arg_list
+    
+    user_data = np.loadtxt(user_data_file, skiprows=0, dtype=int)
+    col = user_data[:,1].T - 1
+    row = user_data[:,0].T - 1
+    data = user_data[:,2].T
+    coo_Q = coo_matrix((data,(row,col)), shape=(num_neuron, num_neuron), dtype=int)
+    array_Q = coo_Q.toarray()
+    
+    full_Q = (np.triu(array_Q, k=1))
+    full_Q = full_Q + full_Q.T
+    
+
+    return torch.tensor(full_Q, dtype=torch.double)
+
+class GTNN:
+    # Vanilla init for GTNN object
+    def __init__(self):
+        global neuron, duration
+        neuron = arg_list['NUM_NEURON']
+        duration = int(arg_list['TMAX']/arg_list['DT'])
+        self.vp = torch.empty((neuron, 1))
+        self.vn = torch.empty((neuron, 1))
+        self.Psip = torch.zeros((neuron, 1))
+        self.Psin = torch.zeros((neuron, 1))
+        self.b = torch.empty(0)
+        self.mask = torch.empty((neuron, neuron))
+        self.Q = torch.empty((neuron, neuron))
+        self.vp_ev = np.empty((neuron, duration))
+        self.vn_ev = np.empty((neuron, duration))
+        self.true_spikes = np.empty((neuron, duration))
+        self.spike_rate = np.empty((neuron, duration))
+        self.learn = 0
+        
+        self.synapse_obj = None
+        self.pulse_m = 1
+        self.pulse_w = arg_list['DT']
+    
+    def dimension_check(self):
+        assert self.b.shape == (neuron, 1) or self.b.shape == (neuron, duration)
+        assert self.mask.shape == (neuron, neuron)
+        assert self.Q.shape == (neuron, neuron)
+
+    # Public: Refresh the record on membrane potential and spiking activity
+    # Call after reset the TMAX parameter for the *Next* run
+    def refresh_record(self):
+        global neuron, duration
+        self.vp_ev = np.empty((neuron, duration))
+        self.vn_ev = np.empty((neuron, duration))
+        self.true_spikes = np.empty((neuron, duration))
+        self.spike_rate = np.empty((neuron, duration))
+    
+    # 'uniform' -0.2
+    # 'random' uniformly random [0, -0.2]
+    def init_v(self, mode):
+        global neuron, duration
+        self.vp = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
+        self.vn = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
+
+        pass
+
+    def init_b(self, mode):
+        global neuron, duration
+        if np.char.equal(mode, 'DC'):
+            self.b = 0.6*np.random.rand(neuron, 1)-0.3
+        pass
+
+    def init_Q(self, mode):
+        global neuron, duration
+        self.Q = 1/neuron * (np.random.rand(neuron, neuron)-0.5)*np.logical_not(np.eye(neuron))
+        self.Q = torch.tensor(self.Q)
+
+        if np.char.equal(mode, "user data"):
+            num_neuron = arg_list['NUM_NEURON']
+            Qfile = arg_list['QFILE']
+            self.Q = genQ_txt(num_neuron=num_neuron, user_data_file=Qfile)
+    
+        # full Q size should be bounded
+        # if np.char.equal(mode, 'full homogenous'):
+        #     pass
+        # elif np.char.equal(mode, 'full random'):
+        #     pass
+        # elif np.char.equal(mode, 'cluster'):
+        #     pass
+
+    def init_FN(self, V0, FN_scale, pulse_m, pulse_w, K = torch.tensor([38.2011, 329.3093]), mm = 1):
+        global neuron, duration
+        if np.isscalar(V0):
+            V0 = V0*torch.ones((neuron, neuron))
+        else:
+            assert V0.shape == (neuron, neuron)
+            V0 = torch.tensor(V0)
+        if np.isscalar(FN_scale):
+            FN_scale = FN_scale*torch.ones_like(V0)
+        else:
+            assert FN_scale.shape == (neuron, neuron)
+            FN_scale = torch.tensor(FN_scale)
+        if np.isscalar(pulse_m):
+            self.pulse_m = pulse_m*torch.ones_like(V0)
+        else:
+            assert pulse_m.shape == (neuron, neuron)
+            self.pulse_m = torch.tensor(self.pulse_m)
+        if np.isscalar(pulse_w):
+            self.pulse_w = pulse_w*torch.ones_like(V0)
+        else:
+            assert pulse_w.shape == (neuron, neuron)
+            self.pulse_w = torch.tensor(self.pulse_w)
+
+        kwargs = {'device_k' : K,\
+                  'mismatch' : mm,\
+                  'memory_scale' : FN_scale,\
+                  'Wc' : V0,\
+                  'memory_dim' : tuple((neuron, neuron))}
+        self.synapse_obj = FNSynapse(**kwargs)
+        pass
+    
+    def init_mask(self):
+        global neuron, duration
+        self.mask = np.logical_not(np.eye(neuron))
+        pass
+
+    # Private: update Q
+    def updateQ(self):
+        threshold = 1e-4
+        Qgrad = np.outer((self.Psip - self.Psin), (self.vp - self.vn))
+        deltaQ=0.5 * arg_list['ETA'] * self.mask * Qgrad
+        deltaQ[np.abs(deltaQ)<threshold] = 0
+        if self.synapse_obj == None:
+            self.Q += deltaQ
+        else:
+            deltaQ = torch.tensor(deltaQ)
+            self.synapse_obj.synapse_evolve(-self.pulse_m*deltaQ, self.pulse_w)
+            self.Q = self.synapse_obj.read()
+        pass
+    
+    # def updateQ_FN(self):
+    #     threshold = 1e-4
+    #     Qgrad = np.outer((self.Psip - self.Psin), (self.vp - self.vn))
+    #     # S=self.pulse_m
+    #     # pw=self.pulse_w
+    #     deltaQ=0.5 * arg_list['ETA'] * self.mask * Qgrad
+    #     deltaQ[np.abs(deltaQ)<threshold] = 0
+    #     deltaQ = torch.tensor(deltaQ)
+    #     self.synapse_obj.cont_update(-self.pulse_m*deltaQ ,self.pulse_w)
+    #     self.Q=self.synapse_obj.y.numpy()
+    #     pass
+    
+    # Public: Update inputs or mask before next run
+    def update(self, b = np.empty((0)), M = np.empty((0))):
+        global neuron, duration
+        duration = int(arg_list['TMAX']/arg_list['DT'])
+        if len(b) != 0:
+            if not isinstance(b, torch.Tensor):
+                self.b = torch.tensor(b)
+        if len(M) != 0:
+            if not isinstance(M, torch.Tensor):
+                self.M = torch.tensor(M)
+        assert self.b.shape == (neuron, 1) or self.b.shape == (neuron, duration)
+        assert self.mask.shape == (neuron, neuron)
+    
+    def refresh_vpvn(self):
+        global neuron, duration
+        self.vp *= 0
+        self.vn *= 0
+        self.Psin *= 0
+        self.Psip *= 0
+            
+    # Public: run with current vp, vn, b, and Q, for Tmax time
+    def run(self):
+        global neuron, duration
+        self.start_time = time.time()
+        window_size = 100
+        spike_rate_window = np.zeros((neuron, window_size))
+        #
+        continuous_b = self.b.shape[1] == duration
+        # DC input
+        if not continuous_b:
+            b_iter = self.b.reshape(neuron, 1)
+        for iter in range(duration):
+            # Record membrane potential
+            self.vp_ev[:, iter] = self.vp.numpy().reshape(neuron,)
+            self.vn_ev[:, iter] = self.vn.numpy().reshape(neuron,)
+            # Calculate gradient
+            Qv = torch.matmul(self.Q, (self.vp-self.vn))
+            # AC input
+            if continuous_b:
+                b_iter = self.b[:, iter].reshape(neuron, 1)
+
+            Gp = self.vp - b_iter + Qv + self.Psip
+            Gn = self.vn + b_iter - Qv + self.Psin
+            # Reset spikes
+            self.Psip *= 0
+            self.Psin *= 0
+            # GT dynamics
+            self.vp = self.vp + (arg_list['DT']/arg_list['TAU']) * ((self.vp*self.vp - arg_list['VMAX']**2) * Gp)\
+                    / (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
+            self.vn = self.vn + (arg_list['DT']/arg_list['TAU']) * ((self.vn*self.vn - arg_list['VMAX']**2) * Gn)\
+                    / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
+            
+            # vp = vp - arg_list['TAU'] * (vp + np.sign(Gp) * arg_list['VMAX'])
+            # vn = vn - arg_list['TAU'] * (vn + np.sign(Gn) * arg_list['VMAX'])
+
+
+            # Sanity check
+            # vp_flag = torch.logical_or(torch.abs(self.vp) > arg_list['VMAX'], torch.abs(Gp) > arg_list['LAMBDA'])
+            # vn_flag = torch.logical_or(torch.abs(self.vn) > arg_list['VMAX'], torch.abs(Gn) > arg_list['LAMBDA'])
+            # if torch.any(vp_flag) or torch.any(vn_flag):
+            #     print("GT Sanity Check %d" %(iter))
+            #     print("Gp: %d", torch.sum(torch.abs(Gp) > arg_list['LAMBDA']))
+            #     print("Gn: %d", torch.sum(torch.abs(Gn) > arg_list['LAMBDA']))
+            #     break
+            
+            # Generate spikes
+            self.Psip[self.vp>arg_list['VTH']] = arg_list['C']
+            self.Psin[self.vn>arg_list['VTH']] = arg_list['C']
+            self.vp = self.vp*(self.vp<=arg_list['VTH']) + arg_list['VTH']*(self.vp>arg_list['VTH'])
+            self.vn = self.vn*(self.vn<=arg_list['VTH']) + arg_list['VTH']*(self.vn>arg_list['VTH'])
+
+            self.true_spikes[:, iter] = (self.Psip + self.Psin).reshape(neuron,).numpy() * iter
+            spike_rate_window[:, int(iter%window_size)] = (self.Psip + self.Psin).reshape(neuron,).numpy()
+            if iter < window_size:
+                self.spike_rate[:, iter] = np.sum(spike_rate_window, axis=1)/(iter+1)
+            else:
+                self.spike_rate[:, iter] = np.sum(spike_rate_window, axis=1)/window_size
+
+            if iter % 1000:
+                tempQ = self.Q.numpy()
+                tempv = (self.vp-self.vn).numpy()
+                maxcut, converged = max_cut(tempQ, tempv)
+                print("max cut: %d, number converged: %d" %(maxcut, converged))
+
+            if self.learn:
+                self.updateQ()
+        
+        self.end_time = time.time()
+    
+    def report_time(self):
+        print(f'GTNN run time: {self.end_time-self.start_time}')
+            
+    def plot_raster(self):
+        global neuron, duration
+        spikes_list = list()
+        for i in range(neuron):
+            spikes_list.insert(i, self.true_spikes[i, np.nonzero(self.true_spikes[i,:])])
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        ax1.set_xlim(0, int(arg_list['TMAX']/arg_list['DT']))
+        for i in range(arg_list['NUM_NEURON']):
+            ax1.eventplot(spikes_list[i], linelengths=0.8, lineoffsets=i, colors='black')
+        # ax1.set_title('Neuron Firing Event')
+        ax1.set_xlabel('Time (us)')
+        ax1.set_ylabel('Neuron')
+        plt.show()
+        pass
+
+    def plot_general(self):
+        fig = plt.figure()
+        fig.tight_layout(pad=3)
+        # vp_ax = fig.add_subplot(2, 3, 1)
+        # vn_ax = fig.add_subplot(2, 3, 2)
+        # Q_ax = fig.add_subplot(2, 3, 3)
+        # enery_ax = fig.add_subplot(2, 3, 4)
+        vnorm = np.linalg.norm((self.vp_ev-self.vn_ev), axis=0)
+        vnorm_ax = fig.add_subplot(211)
+        vnorm_ax.plot(vnorm.reshape(-1))
+
+        v_ax = fig.add_subplot(212)
+        v_temp = self.vp_ev.T - self.vn_ev.T
+        v_ax.plot(v_temp)
+        plt.show()
+        pass
+
+    def plot_plasticity(self):
+        norm = matplotlib.colors.Normalize()
+        plasticity_arr = self.synapse_obj.usage.numpy()
+        t_arr = self.pulse_w.numpy()
+        m_arr = self.pulse_m.numpy()
+        fig = plt.figure()
+        fig.tight_layout(pad=3)
+        
+        plasticity_ax = fig.add_subplot(111)
+        imP = plasticity_ax.imshow(plasticity_arr, norm=norm, cmap=plt.cm.plasma)
+        plasticity_ax.axis('off')
+        plasticity_ax.set_title('2D Memory Cell Array')
+        cbar = fig.colorbar(imP, ax = plasticity_ax, fraction=0.046, pad=0.04)
+        # cbar = fig.colorbar(imP, ticks=[7.9, 10])
+        # cbar.ax.set_yticklabels(['Long-term', 'Short-term'])  # horizontal colorbar
+        
+
+        # norm = matplotlib.colors.Normalize()
+        # t_ax = fig.add_subplot(312)
+        # imT = t_ax.imshow(t_arr, norm=norm, cmap=plt.cm.cool)
+        # t_ax.axis('off')
+        # t_ax.set_title('Pulse Width')
+
+        # norm = matplotlib.colors.Normalize()
+        # m_ax = fig.add_subplot(313)
+        # imM = m_ax.imshow(m_arr, norm=norm, cmap=plt.cm.cool)
+        # m_ax.axis('off')
+        # m_ax.set_title('Pulse Mag')
+
+        # plt.colorbar(imP, ax=plasticity_ax, fraction=0.046, pad=0.04)
+        # plt.colorbar(imT, ax=t_ax, fraction=0.046, pad=0.04)
+        # plt.colorbar(imM, ax=m_ax, fraction=0.046, pad=0.04)
+        plt.show()
+    
+    def plot_pca(self):
+        pass
+
+

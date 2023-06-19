@@ -100,52 +100,14 @@ class GTNN:
 
     def init_Q(self, mode):
         global neuron, duration
-        self.Q = 1/neuron * (np.random.rand(neuron, neuron)-0.5)*np.logical_not(np.eye(neuron))
-        self.Q = torch.tensor(self.Q)
 
         if np.char.equal(mode, "user data"):
             num_neuron = arg_list['NUM_NEURON']
             Qfile = arg_list['QFILE']
             self.Q = genQ_txt(num_neuron=num_neuron, user_data_file=Qfile)
-    
-        # full Q size should be bounded
-        # if np.char.equal(mode, 'full homogenous'):
-        #     pass
-        # elif np.char.equal(mode, 'full random'):
-        #     pass
-        # elif np.char.equal(mode, 'cluster'):
-        #     pass
-
-    def init_FN(self, V0, FN_scale, pulse_m, pulse_w, K = torch.tensor([38.2011, 329.3093]), mm = 1):
-        global neuron, duration
-        if np.isscalar(V0):
-            V0 = V0*torch.ones((neuron, neuron))
         else:
-            assert V0.shape == (neuron, neuron)
-            V0 = torch.tensor(V0)
-        if np.isscalar(FN_scale):
-            FN_scale = FN_scale*torch.ones_like(V0)
-        else:
-            assert FN_scale.shape == (neuron, neuron)
-            FN_scale = torch.tensor(FN_scale)
-        if np.isscalar(pulse_m):
-            self.pulse_m = pulse_m*torch.ones_like(V0)
-        else:
-            assert pulse_m.shape == (neuron, neuron)
-            self.pulse_m = torch.tensor(self.pulse_m)
-        if np.isscalar(pulse_w):
-            self.pulse_w = pulse_w*torch.ones_like(V0)
-        else:
-            assert pulse_w.shape == (neuron, neuron)
-            self.pulse_w = torch.tensor(self.pulse_w)
-
-        kwargs = {'device_k' : K,\
-                  'mismatch' : mm,\
-                  'memory_scale' : FN_scale,\
-                  'Wc' : V0,\
-                  'memory_dim' : tuple((neuron, neuron))}
-        self.synapse_obj = FNSynapse(**kwargs)
-        pass
+            self.Q = 1/neuron * (np.random.rand(neuron, neuron)-0.5)*np.logical_not(np.eye(neuron))
+            elf.Q = torch.tensor(self.Q)
     
     def init_mask(self):
         global neuron, duration
@@ -199,7 +161,7 @@ class GTNN:
         self.Psip *= 0
             
     # Public: run with current vp, vn, b, and Q, for Tmax time
-    def run(self):
+    def run(self, flag):
         global neuron, duration
         self.start_time = time.time()
         window_size = 100
@@ -235,13 +197,14 @@ class GTNN:
 
 
             # Sanity check
-            # vp_flag = torch.logical_or(torch.abs(self.vp) > arg_list['VMAX'], torch.abs(Gp) > arg_list['LAMBDA'])
-            # vn_flag = torch.logical_or(torch.abs(self.vn) > arg_list['VMAX'], torch.abs(Gn) > arg_list['LAMBDA'])
-            # if torch.any(vp_flag) or torch.any(vn_flag):
-            #     print("GT Sanity Check %d" %(iter))
-            #     print("Gp: %d", torch.sum(torch.abs(Gp) > arg_list['LAMBDA']))
-            #     print("Gn: %d", torch.sum(torch.abs(Gn) > arg_list['LAMBDA']))
-            #     break
+            if not flag:
+                vp_flag = torch.logical_or(torch.abs(self.vp) > arg_list['VMAX'], torch.abs(Gp) > arg_list['LAMBDA'])
+                vn_flag = torch.logical_or(torch.abs(self.vn) > arg_list['VMAX'], torch.abs(Gn) > arg_list['LAMBDA'])
+                if torch.any(vp_flag) or torch.any(vn_flag):
+                    print("GT Sanity Check %d" %(iter))
+                    print("Gp: %d", torch.sum(torch.abs(Gp) > arg_list['LAMBDA']))
+                    print("Gn: %d", torch.sum(torch.abs(Gn) > arg_list['LAMBDA']))
+                    break
             
             # Generate spikes
             self.Psip[self.vp>arg_list['VTH']] = arg_list['C']
@@ -256,11 +219,11 @@ class GTNN:
             else:
                 self.spike_rate[:, iter] = np.sum(spike_rate_window, axis=1)/window_size
 
-            if iter % 1000:
+            if flag and iter%5000 == 0:
                 tempQ = self.Q.numpy()
                 tempv = (self.vp-self.vn).numpy()
                 maxcut, converged = max_cut(tempQ, tempv)
-                print("max cut: %d, number converged: %d" %(maxcut, converged))
+                print("max cut: %d, #iter: %d" %(maxcut, iter))
 
             if self.learn:
                 self.updateQ()
@@ -269,6 +232,12 @@ class GTNN:
     
     def report_time(self):
         print(f'GTNN run time: {self.end_time-self.start_time}')
+
+    def report_maxcut(self):
+        tempQ = self.Q.numpy()
+        tempv = (self.vp-self.vn).numpy()
+        maxcut, converged = max_cut(tempQ, tempv)
+        print("At the current stage, max cut: %d" %(maxcut))
             
     def plot_raster(self):
         global neuron, duration
@@ -301,43 +270,6 @@ class GTNN:
         v_temp = self.vp_ev.T - self.vn_ev.T
         v_ax.plot(v_temp)
         plt.show()
-        pass
-
-    def plot_plasticity(self):
-        norm = matplotlib.colors.Normalize()
-        plasticity_arr = self.synapse_obj.usage.numpy()
-        t_arr = self.pulse_w.numpy()
-        m_arr = self.pulse_m.numpy()
-        fig = plt.figure()
-        fig.tight_layout(pad=3)
-        
-        plasticity_ax = fig.add_subplot(111)
-        imP = plasticity_ax.imshow(plasticity_arr, norm=norm, cmap=plt.cm.plasma)
-        plasticity_ax.axis('off')
-        plasticity_ax.set_title('2D Memory Cell Array')
-        cbar = fig.colorbar(imP, ax = plasticity_ax, fraction=0.046, pad=0.04)
-        # cbar = fig.colorbar(imP, ticks=[7.9, 10])
-        # cbar.ax.set_yticklabels(['Long-term', 'Short-term'])  # horizontal colorbar
-        
-
-        # norm = matplotlib.colors.Normalize()
-        # t_ax = fig.add_subplot(312)
-        # imT = t_ax.imshow(t_arr, norm=norm, cmap=plt.cm.cool)
-        # t_ax.axis('off')
-        # t_ax.set_title('Pulse Width')
-
-        # norm = matplotlib.colors.Normalize()
-        # m_ax = fig.add_subplot(313)
-        # imM = m_ax.imshow(m_arr, norm=norm, cmap=plt.cm.cool)
-        # m_ax.axis('off')
-        # m_ax.set_title('Pulse Mag')
-
-        # plt.colorbar(imP, ax=plasticity_ax, fraction=0.046, pad=0.04)
-        # plt.colorbar(imT, ax=t_ax, fraction=0.046, pad=0.04)
-        # plt.colorbar(imM, ax=m_ax, fraction=0.046, pad=0.04)
-        plt.show()
-    
-    def plot_pca(self):
         pass
 
 

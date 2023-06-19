@@ -2,7 +2,7 @@
 ## Introduction
 GTNN_tool is an open source GUI program that implements large-scale growth transform neural network in real-time. GTNN_tool provides full configurability of the neural network for the users, including the dynamics of the neural membrane potential evolution, inputs to the neurons, and connectivity among neurons. The tool also contains visuliazed probes that monitor the real-time power consumption of the network and the membrane potential updates of user-specified neurons. GTNN_tool grants user accessibity of large-scale GT neural network, which can be configured to take on different optimization tasks.  
 ## First Release
-The first release of this program aims to demonstrate the network dynamics of the GTNN in a larger scale than the previous platforms. Multiple pre-defined modes aiming to solve different optimization problem will be added in future releases.  
+The first release of this program aims to demonstrate the network dynamics of the GTNN in a larger scale than the previous platforms. Multiple pre-defined modes aiming to solve different optimization problem will be added in future releases. Pytorch is needed as prerequisite.
 ## Installation
 Run installation script **install.sh** in the cloned repository  
 `$ ./install.sh`  

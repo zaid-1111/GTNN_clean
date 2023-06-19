@@ -29,7 +29,7 @@ from gtnn_object import GTNN, get_num_neurons
 default_neuron = 800
 
 arg_list['NUM_NEURON'] = default_neuron
-arg_list['QFILE'] = './data/graphs/G31.txt'
+arg_list['QFILE'] = './data/graphs/G50.txt'
 arg_list['VMAX'] = 1
 arg_list['DT'] = 0.001
 arg_list['TMAX'] = 10

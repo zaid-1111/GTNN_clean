@@ -307,7 +307,7 @@ class GTNN:
         fig = plt.figure()
         Q_ax = fig.add_subplot(111)
 
-        Q_ax.imshow(self.Q.numpy(), norm=norm, cmap=plt.cm.hot)
+        Q_ax.imshow(self.Q.numpy(), norm=norm, cmap='gray')
         Q_ax.axis('off')
         Q_ax.set_title('Adjacency Matrix')
         plt.show()

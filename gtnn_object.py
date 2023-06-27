@@ -114,9 +114,9 @@ class GTNN:
     # 'random' uniformly random [0, -0.2]
     def init_v(self, mode):
         global neuron, duration
-        self.vp = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
-        self.vn = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
-
+        if np.char.equal(mode, 'random'):
+            self.vp = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
+            self.vn = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
         pass
 
     def init_b(self, mode):

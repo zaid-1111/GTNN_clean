@@ -29,7 +29,7 @@ from gtnn_object import GTNN, get_num_neurons
 default_neuron = 800
 
 arg_list['NUM_NEURON'] = default_neuron
-arg_list['QFILE'] = './data/graphs/G50.txt'
+arg_list['QFILE'] = './data/graphs/G14.txt'
 arg_list['VMAX'] = 1
 arg_list['DT'] = 0.001
 arg_list['TMAX'] = 10
@@ -65,11 +65,11 @@ myGTNN.plot_general()
 
 # Continue running
 # Update time and input before calling update
-arg_list['TMAX'] = 5
-b_temp = np.zeros((neuron, 1))
-myGTNN.update(b = b_temp.reshape(neuron,1))
-# Refresh the recording of membrane potential
-myGTNN.refresh_record()
-myGTNN.run(en_maxcut)
-myGTNN.report_time()
-myGTNN.plot_general()
+# arg_list['TMAX'] = 5
+# b_temp = np.zeros((neuron, 1))
+# myGTNN.update(b = b_temp.reshape(neuron,1))
+# # Refresh the recording of membrane potential
+# myGTNN.refresh_record()
+# myGTNN.run(en_maxcut)
+# myGTNN.report_time()
+# myGTNN.plot_general()

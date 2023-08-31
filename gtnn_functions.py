@@ -268,7 +268,7 @@ def adapt_Q(iter, Q, Psip, Psin, vp, vn, M=np.array(np.mat('1 0 0 1 1; 1 1 1 0 1
 
 def gtnn_evolve(mode, M, vp, vn, Q, b):
     global arg_list
-
+    duration = int(arg_list['TMAX']/arg_list['DT'])
     if np.char.equal(mode, "routing"):
         vp_ev = np.zeros((arg_list['NUM_NEURON'], int(arg_list['TMAX']/arg_list['DT'])))
         vn_ev = np.zeros((arg_list['NUM_NEURON'], int(arg_list['TMAX']/arg_list['DT'])))
@@ -278,6 +278,9 @@ def gtnn_evolve(mode, M, vp, vn, Q, b):
     Psip = np.zeros((arg_list['NUM_NEURON'], 1)).astype(np.float16)
     Psin = np.zeros((arg_list['NUM_NEURON'], 1)).astype(np.float16)
     power_ev = np.zeros(int(arg_list['TMAX']/arg_list['DT']))
+
+    alpha = 10 * arg_list['TAU']
+    tau = alpha * np.cos(np.linspace(0, arg_list['TMAX'], duration))
    
    
     iter = 0
@@ -312,9 +315,13 @@ def gtnn_evolve(mode, M, vp, vn, Q, b):
             Psip = np.zeros((arg_list['NUM_NEURON'], 1)).astype(np.float16)
             Psin = np.zeros((arg_list['NUM_NEURON'], 1)).astype(np.float16)
             
-            vp = vp + (arg_list['DT']/arg_list['TAU']) * ((vp*vp - arg_list['VMAX']**2) * Gp)\
+            # vp = vp + (arg_list['DT']/arg_list['TAU']) * ((vp*vp - arg_list['VMAX']**2) * Gp)\
+            #         / (-vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
+            # vn = vn + (arg_list['DT']/arg_list['TAU']) * ((vn*vn - arg_list['VMAX']**2) * Gn)\
+            #         / (-vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
+            vp = vp + (arg_list['DT']/tau[i]) * ((vp*vp - arg_list['VMAX']**2) * Gp)\
                     / (-vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
-            vn = vn + (arg_list['DT']/arg_list['TAU']) * ((vn*vn - arg_list['VMAX']**2) * Gn)\
+            vn = vn + (arg_list['DT']/tau[i]) * ((vn*vn - arg_list['VMAX']**2) * Gn)\
                     / (-vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
             # vp = vp - (arg_list['DT']/arg_list['TAU']) * (vp + np.sign(Gp) * arg_list['VMAX'])
             # vn = vn - (arg_list['DT']/arg_list['TAU']) * (vn + np.sign(Gn) * arg_list['VMAX'])

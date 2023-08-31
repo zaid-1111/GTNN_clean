@@ -195,6 +195,10 @@ class GTNN:
         spike_rate_window = np.zeros((neuron, window_size))
         #
         continuous_b = self.b.shape[1] == duration
+        # alpha = 1
+        # tau = alpha * np.sin(np.linspace(0, arg_list['TMAX'], duration))
+        # tau = np.square(tau)
+
         # DC input
         if not continuous_b:
             b_iter = self.b.reshape(neuron, 1)
@@ -214,11 +218,25 @@ class GTNN:
             self.Psip *= 0
             self.Psin *= 0
             # GT dynamics
-            self.vp = self.vp + (arg_list['DT']/arg_list['TAU']) * ((self.vp*self.vp - arg_list['VMAX']**2) * Gp)\
-                    / (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
-            self.vn = self.vn + (arg_list['DT']/arg_list['TAU']) * ((self.vn*self.vn - arg_list['VMAX']**2) * Gn)\
-                    / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
-            
+            # self.vp = self.vp + (arg_list['DT']/arg_list['TAU']) * ((self.vp*self.vp - arg_list['VMAX']**2) * Gp)\
+            #         / (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
+            # self.vn = self.vn + (arg_list['DT']/arg_list['TAU']) * ((self.vn*self.vn - arg_list['VMAX']**2) * Gn)\
+            #         / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
+            #####
+            A_p = self.vp*self.vp - arg_list['VMAX']**2
+            B_p = (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
+
+            A_n = self.vn*self.vn - arg_list['VMAX']**2
+            B_n = (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
+
+            tau_p = (Gp * A_p - 2 * self.vp * B_p)/(A_p * B_p)
+            tau_n = (Gn * A_n - 2 * self.vn * B_n)/(A_n * B_n)
+            tau_p = torch.sigmoid(tau_p)
+            tau_n = torch.sigmoid(tau_n)
+
+            self.vp = self.vp + (arg_list['DT']/arg_list['TAU'])/tau_p * (A_p * Gp) / B_p
+            self.vn = self.vn + (arg_list['DT']/arg_list['TAU'])/tau_n * (A_n * Gn) / B_n
+            #####
             # vp = vp - arg_list['TAU'] * (vp + np.sign(Gp) * arg_list['VMAX'])
             # vn = vn - arg_list['TAU'] * (vn + np.sign(Gn) * arg_list['VMAX'])
 

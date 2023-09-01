@@ -115,8 +115,8 @@ class GTNN:
     def init_v(self, mode):
         global neuron, duration
         if np.char.equal(mode, 'random'):
-            self.vp = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
-            self.vn = torch.rand(neuron, 1, dtype=torch.double) * -0.5 
+            self.vp = torch.rand(neuron, 1, dtype=torch.float32) * -0.1 
+            self.vn = torch.rand(neuron, 1, dtype=torch.float32) * -0.1 
         pass
 
     def init_b(self, mode):
@@ -198,6 +198,8 @@ class GTNN:
         # alpha = 1
         # tau = alpha * np.sin(np.linspace(0, arg_list['TMAX'], duration))
         # tau = np.square(tau)
+        m_p = torch.zeros_like(self.vp)
+        m_n = torch.zeros_like(self.vp)
 
         # DC input
         if not continuous_b:
@@ -207,6 +209,9 @@ class GTNN:
             self.vp_ev[:, iter] = self.vp.numpy().reshape(neuron,)
             self.vn_ev[:, iter] = self.vn.numpy().reshape(neuron,)
             # Calculate gradient
+            # print(self.Q.dtype)
+            # print(self.vp.dtype)
+            # print(self.vn.dtype)
             Qv = torch.matmul(self.Q, (self.vp-self.vn))
             # AC input
             if continuous_b:
@@ -223,19 +228,13 @@ class GTNN:
             # self.vn = self.vn + (arg_list['DT']/arg_list['TAU']) * ((self.vn*self.vn - arg_list['VMAX']**2) * Gn)\
             #         / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
             #####
-            A_p = self.vp*self.vp - arg_list['VMAX']**2
-            B_p = (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX'])
+            m_p = (((self.vp*self.vp - arg_list['VMAX']**2) * Gp) / (-self.vp * Gp + torch.maximum(Gp*iter*arg_list['DT']/arg_list['TMAX'], arg_list['LAMBDA']*torch.ones_like(Gp)) * arg_list['VMAX']) + m_p)
+            m_n = (((self.vn*self.vn - arg_list['VMAX']**2) * Gn) / (-self.vn * Gn + torch.maximum(Gn*iter*arg_list['DT']/arg_list['TMAX'], arg_list['LAMBDA']*torch.ones_like(Gn)) * arg_list['VMAX']) + m_n)
+            # m_p = (((self.vp*self.vp - arg_list['VMAX']**2) * Gp) / (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX']) + m_p)
+            # m_n = (((self.vn*self.vn - arg_list['VMAX']**2) * Gn) / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX']) + m_n)
 
-            A_n = self.vn*self.vn - arg_list['VMAX']**2
-            B_n = (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
-
-            tau_p = (Gp * A_p - 2 * self.vp * B_p)/(A_p * B_p)
-            tau_n = (Gn * A_n - 2 * self.vn * B_n)/(A_n * B_n)
-            tau_p = torch.sigmoid(tau_p)
-            tau_n = torch.sigmoid(tau_n)
-
-            self.vp = self.vp + (arg_list['DT']/arg_list['TAU'])/tau_p * (A_p * Gp) / B_p
-            self.vn = self.vn + (arg_list['DT']/arg_list['TAU'])/tau_n * (A_n * Gn) / B_n
+            self.vp = self.vp + arg_list['DT'] * m_p
+            self.vn = self.vn + arg_list['DT'] * m_n
             #####
             # vp = vp - arg_list['TAU'] * (vp + np.sign(Gp) * arg_list['VMAX'])
             # vn = vn - arg_list['TAU'] * (vn + np.sign(Gn) * arg_list['VMAX'])

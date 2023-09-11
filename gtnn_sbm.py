@@ -14,7 +14,7 @@ arg_list['DT'] = 0.001
 arg_list['TMAX'] = 10
 arg_list['TAU'] = 0.01
 arg_list['ETA'] = 0.002
-arg_list['LAMBDA'] = 10
+arg_list['LAMBDA'] = 20
 arg_list['C'] = 1
 arg_list['VTH'] = 0
 

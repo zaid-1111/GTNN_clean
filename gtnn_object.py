@@ -32,6 +32,9 @@ import torch
 import time
 plt.rcParams.update({'font.size': 20})
 
+np.random.seed(42)
+torch.manual_seed(42)
+
 def max_cut(adj, v):
     v = v.reshape(arg_list['NUM_NEURON'],)
     e = 1e-3
@@ -79,17 +82,17 @@ class GTNN:
         global neuron, duration
         neuron = arg_list['NUM_NEURON']
         duration = int(arg_list['TMAX']/arg_list['DT'])
-        self.vp = torch.empty((neuron, 1))
-        self.vn = torch.empty((neuron, 1))
+        self.vp = torch.zeros((neuron, 1))
+        self.vn = torch.zeros((neuron, 1))
         self.Psip = torch.zeros((neuron, 1))
         self.Psin = torch.zeros((neuron, 1))
-        self.b = torch.empty(0)
-        self.mask = torch.empty((neuron, neuron))
-        self.Q = torch.empty((neuron, neuron))
-        self.vp_ev = np.empty((neuron, duration))
-        self.vn_ev = np.empty((neuron, duration))
-        self.true_spikes = np.empty((neuron, duration))
-        self.spike_rate = np.empty((neuron, duration))
+        self.b = torch.zeros(0)
+        self.mask = torch.zeros((neuron, neuron))
+        self.Q = torch.zeros((neuron, neuron))
+        self.vp_ev = np.zeros((neuron, duration))
+        self.vn_ev = np.zeros((neuron, duration))
+        self.true_spikes = np.zeros((neuron, duration))
+        self.spike_rate = np.zeros((neuron, duration))
         self.learn = 0
         
         self.synapse_obj = None
@@ -105,18 +108,18 @@ class GTNN:
     # Call after reset the TMAX parameter for the *Next* run
     def refresh_record(self):
         global neuron, duration
-        self.vp_ev = np.empty((neuron, duration))
-        self.vn_ev = np.empty((neuron, duration))
-        self.true_spikes = np.empty((neuron, duration))
-        self.spike_rate = np.empty((neuron, duration))
+        self.vp_ev = np.zeros((neuron, duration))
+        self.vn_ev = np.zeros((neuron, duration))
+        self.true_spikes = np.zeros((neuron, duration))
+        self.spike_rate = np.zeros((neuron, duration))
     
     # 'uniform' -0.2
     # 'random' uniformly random [0, -0.2]
     def init_v(self, mode):
         global neuron, duration
         if np.char.equal(mode, 'random'):
-            self.vp = torch.rand(neuron, 1, dtype=torch.float32) * -0.1 
-            self.vn = torch.rand(neuron, 1, dtype=torch.float32) * -0.1 
+            self.vp = torch.rand(neuron, 1, dtype=torch.float32) * -0.3 
+            self.vn = torch.rand(neuron, 1, dtype=torch.float32) * -0.3 
         pass
 
     def init_b(self, mode):
@@ -217,8 +220,8 @@ class GTNN:
             if continuous_b:
                 b_iter = self.b[:, iter].reshape(neuron, 1)
 
-            Gp = self.vp - b_iter + Qv + self.Psip
-            Gn = self.vn + b_iter - Qv + self.Psin
+            Gp = self.vp - b_iter + Qv + self.Psip*0
+            Gn = self.vn + b_iter - Qv + self.Psin*0
             # Reset spikes
             self.Psip *= 0
             self.Psin *= 0
@@ -228,8 +231,14 @@ class GTNN:
             # self.vn = self.vn + (arg_list['DT']/arg_list['TAU']) * ((self.vn*self.vn - arg_list['VMAX']**2) * Gn)\
             #         / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX'])
             #####
-            m_p = (((self.vp*self.vp - arg_list['VMAX']**2) * Gp) / (-self.vp * Gp + torch.maximum(Gp*iter*arg_list['DT']/arg_list['TMAX'], arg_list['LAMBDA']*torch.ones_like(Gp)) * arg_list['VMAX']) + m_p)
-            m_n = (((self.vn*self.vn - arg_list['VMAX']**2) * Gn) / (-self.vn * Gn + torch.maximum(Gn*iter*arg_list['DT']/arg_list['TMAX'], arg_list['LAMBDA']*torch.ones_like(Gn)) * arg_list['VMAX']) + m_n)
+            if iter*arg_list['DT'] <= 0.5*arg_list['TMAX']*0:
+                lp = ln = arg_list['LAMBDA']
+            else:
+                # lp = ln = arg_list['LAMBDA']
+                lp = torch.minimum(Gp*iter*arg_list['DT']/arg_list['TMAX'], arg_list['LAMBDA']*torch.ones_like(Gp))
+                ln = torch.minimum(Gn*iter*arg_list['DT']/arg_list['TMAX'], arg_list['LAMBDA']*torch.ones_like(Gn))
+            m_p = (((self.vp*self.vp - arg_list['VMAX']**2) * Gp) / (-self.vp * Gp + lp * arg_list['VMAX']) + m_p)
+            m_n = (((self.vn*self.vn - arg_list['VMAX']**2) * Gn) / (-self.vn * Gn + ln * arg_list['VMAX']) + m_n)
             # m_p = (((self.vp*self.vp - arg_list['VMAX']**2) * Gp) / (-self.vp * Gp + arg_list['LAMBDA'] * arg_list['VMAX']) + m_p)
             # m_n = (((self.vn*self.vn - arg_list['VMAX']**2) * Gn) / (-self.vn * Gn + arg_list['LAMBDA'] * arg_list['VMAX']) + m_n)
 
@@ -241,14 +250,14 @@ class GTNN:
 
 
             # Sanity check
-            if not flag:
-                vp_flag = torch.logical_or(torch.abs(self.vp) > arg_list['VMAX'], torch.abs(Gp) > arg_list['LAMBDA'])
-                vn_flag = torch.logical_or(torch.abs(self.vn) > arg_list['VMAX'], torch.abs(Gn) > arg_list['LAMBDA'])
-                if torch.any(vp_flag) or torch.any(vn_flag):
-                    print("GT Sanity Check %d" %(iter))
-                    print("Gp: %d", torch.sum(torch.abs(Gp) > arg_list['LAMBDA']))
-                    print("Gn: %d", torch.sum(torch.abs(Gn) > arg_list['LAMBDA']))
-                    break
+            # if not flag:
+            #     vp_flag = torch.logical_or(torch.abs(self.vp) > arg_list['VMAX'], torch.abs(Gp) > arg_list['LAMBDA'])
+            #     vn_flag = torch.logical_or(torch.abs(self.vn) > arg_list['VMAX'], torch.abs(Gn) > arg_list['LAMBDA'])
+            #     if torch.any(vp_flag) or torch.any(vn_flag):
+            #         print("GT Sanity Check %d" %(iter))
+            #         print("Gp: %d", torch.sum(torch.abs(Gp) > arg_list['LAMBDA']))
+            #         print("Gn: %d", torch.sum(torch.abs(Gn) > arg_list['LAMBDA']))
+            #         break
             
             # Generate spikes
             self.Psip[self.vp>arg_list['VTH']] = arg_list['C']

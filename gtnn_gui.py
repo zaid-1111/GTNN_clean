@@ -39,7 +39,7 @@ from gtnn_config import arg_list
 from scipy.sparse import csr_matrix, vstack, block_diag, coo_matrix
 
 
-# matplotlib.use("Qt5Agg")
+matplotlib.use("Qt5Agg")
 
 I = np.empty((0))
 Q = np.empty((0))
@@ -926,7 +926,7 @@ class CustomMainWindow(QtWidgets.QMainWindow):
 
 
 
-class CustomFigCanvas(FigureCanvas, TimedAnimation):
+class CustomFigCanvas(TimedAnimation, FigureCanvas):
     def __init__(self, ylabel='', title='', xlim = 200):
         self.addedData = []
         # print('Matplotlib Version:', matplotlib.__version__)
@@ -937,8 +937,8 @@ class CustomFigCanvas(FigureCanvas, TimedAnimation):
         self.y = (self.n * 0.0)
 
         # The window
-        self.fig = Figure(figsize=(8, 8), dpi=100)
-        self.ax1 = self.fig.add_subplot(111)
+        fig = Figure(figsize=(8, 8), dpi=100)
+        self.ax1 = fig.add_subplot(111)
 
         # self.ax1 settings
         self.ax1.set_xlabel('time')
@@ -963,8 +963,8 @@ class CustomFigCanvas(FigureCanvas, TimedAnimation):
         self.ax1.set_xlim(0, self.xlim - 1)
         self.ax1.set_ylim(-1, 2)
 
-        FigureCanvas.__init__(self, self.fig)
-        TimedAnimation.__init__(self, self.fig, interval=50, blit=True)
+        FigureCanvas.__init__(self, fig)
+        TimedAnimation.__init__(self, fig, interval=50, blit=True)
 
     def new_frame_seq(self):
         return iter(range(self.n.size))

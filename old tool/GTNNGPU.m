@@ -50,7 +50,7 @@
 % -------------------------------------------------------------------------
 % Washington University hereby grants to you a non-transferable,
 % non-exclusive, royalty-free, non-commercial, research license to use and
-% copy the computer code provided here (the “Software”).  You agree to
+% copy the computer code provided here (the â€œSoftwareâ€).  You agree to
 % include this license and the above copyright notice in all copies of the
 % Software.  The Software may not be distributed, shared, or transferred to
 % any third party.  This license does not grant any rights or licenses to
@@ -60,7 +60,7 @@
 % Technology Management (otm@dom.wustl.edu).
 % 
 % YOU AGREE THAT THE SOFTWARE PROVIDED HEREUNDER IS EXPERIMENTAL AND IS
-% PROVIDED “AS IS”, WITHOUT ANY WARRANTY OF ANY KIND, EXPRESSED OR IMPLIED,
+% PROVIDED â€œAS ISâ€, WITHOUT ANY WARRANTY OF ANY KIND, EXPRESSED OR IMPLIED,
 % INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY OR FITNESS FOR
 % ANY PARTICULAR PURPOSE, OR NON-INFRINGEMENT OF ANY THIRD-PARTY PATENT,
 % COPYRIGHT, OR ANY OTHER THIRD-PARTY RIGHT.  IN NO EVENT SHALL THE
@@ -75,51 +75,67 @@
 
 function GTNNLearningDemo
 % function GT_NeuronModel
-
+plotMembrane = 0;
+numNeuronLimit = 2000;
 % First get the input number of neurons
-prompt={'Enter number of neurons between 1 and 40'};
+prompt = {['Enter number of neurons between 1 and ' num2str(numNeuronLimit)]};
 name = 'Number of neurons';
 defaultans = {'6'};
-answer = inputdlg(prompt,name,[1 101],defaultans);
+answer = inputdlg(prompt,name,[1 40],defaultans);
 temp = str2double(answer);
 if isempty(answer)
     disp("Error in fetching number of neurons\n");
     return
-elseif ~isnan(temp) && temp>0 && temp<101
+elseif ~isnan(temp) && temp>0 && temp<numNeuronLimit+1
     nNeuron = round(temp);
 else
-    disp('Number of neurons needs to be integer between 1 and 100')
+    disp(['Number of neurons needs to be integer between 1 and'  num2str(numNeuronLimit)])
     return
 end
 % Parameters
 % Start from a random or fixed initial point
 
 
-% Set synaptic weight matrix
-Q = zeros(nNeuron,nNeuron);
+
 Qcustom = [0	-0.25	-0.026	0	0	0
            -0.35	0	-0.14	0	0.13	0
            -0.24	-0.15	0	0.11	0	0
             0	0	0.11	    0	0.434	-0.337
             0	0	0.31	    0.067	0	0.29
             0	0	0	    -0.42	0.068	0];
-% Mask matrix - which shows which neurons are phyically connected
-M = ones(nNeuron,nNeuron);
+%Q = gpuArray(Q);
+
+
+
+% Set synaptic weight matrix
+Q = zeros(nNeuron,nNeuron);
+M = ones(nNeuron,nNeuron);% Mask matrix - which shows which neurons are phyically connected
 I = eye(nNeuron,nNeuron);
 I_input = 0*ones(nNeuron,1);
 a = ones(nNeuron,1);
-
-
 nSpeed = 1;
 L = 1000;
 repeatdata = 100;
 ac_amp = zeros(nNeuron,1);
 freq = 5*ones(nNeuron,1);
 y = zeros(nNeuron,L);
-I_hist = zeros(nNeuron,L);
+
 userdata = [];
-%load userdata;
 output = [];
+
+Q= gpuArray(Q);
+M=gpuArray(M);
+I = gpuArray(I);
+I_input=gpuArray(I_input);
+a = gpuArray(a);
+ac_amp = gpuArray(ac_amp);
+freq = gpuArray(freq);
+y = gpuArray(y);
+
+
+
+
+
 
 nSelect = 1;
 nDisp = 1;
@@ -172,13 +188,13 @@ inField{1} = uicontrol('Parent',pnl_input,'Style','slider',...
 inField{2} = uicontrol('Parent',pnl_input,'Style','slider',...
     'Min',0,'Max',0.2, 'SliderStep',[0.05 0.2],'Units','normalized', ...
     'Position',[0.62 ycoord(4)+0.06 0.3 yHt-0.01],...
-    'Value',ac_amp(1),'tag','ac_amp','Callback',@changepars);
+    'Value',gather(ac_amp(1)),'tag','ac_amp','Callback',@changepars);
 
 
 inField{3} = uicontrol('Parent',pnl_input,'Style','slider',...
     'Min',0,'Max',10, 'SliderStep',[0.1 0.2],'Units','normalized',...
     'Position',[0.62 ycoord(5)+0.04 0.3 yHt-0.01],...
-    'Value',freq(1),'tag','freq','Callback',@changepars);
+    'Value',gather(freq(1)),'tag','freq','Callback',@changepars);
 
 
 inField{4} = uicontrol('Parent',pnl_input,'Style','slider',...
@@ -190,7 +206,7 @@ inField{4} = uicontrol('Parent',pnl_input,'Style','slider',...
 inField{5} = uicontrol('Parent',pnl_input,'Style','slider',...
     'Min',0,'Max',1, 'SliderStep',[0.05 0.2], 'Units','normalized', ...
     'Position',[0.62 ycoord(7)+0.04 0.3 yHt-0.01],...
-    'Value',a(1),'tag','alpha','Callback',@changepars);
+    'Value',gather(a(1)),'tag','alpha','Callback',@changepars);
 
 inField{6} = uicontrol('Parent',pnl_input,'Style','checkbox',...
     'Min',0,'Max',1, 'Units','normalized', ...
@@ -238,34 +254,36 @@ uicontrol('Style', 'togglebutton','String','Learn',...
     'Min',0,'Max',1,'Value',0, 'Units','normalized', ...
     'Position',[0.50 0.02 0.1 0.05],...
     'tag','learnflag','Callback',@changepars);
-
-h1 = axes('Position',[0.05 0.5 0.9 0.4]);
-hold on
-
-nAx = cell(1,nNeuron);
-for n1 =1:nNeuron
-    nAx{n1} = plot(h1,1:L,y(n1,:)+n1,'LineWidth',2);
+if(plotMembrane==1)
+    h1 = axes('Position',[0.05 0.5 0.9 0.4]);
+    hold on
+    
+    nAx = cell(1,nNeuron);
+    for n1 =1:nNeuron
+        nAx{n1} = plot(h1,1:L,y(n1,:)+n1,'LineWidth',2);
+    end
+    
+    
+    
+    axis manual
+    axis([0 1000 0 nNeuron+1])
+    title('Membrane potential')
+    xlabel('Time (ms)');
+    ylabel('Neuron Index');
+    set(gca,'ytick',1:nNeuron)
 end
-
-
-
-axis manual
-axis([0 1000 0 nNeuron+1])
-title('Membrane potential')
-xlabel('Time (ms)');
-ylabel('Neuron Index');
-set(gca,'ytick',1:nNeuron)
-
 h2 = axes('Position',[0.7 0.15 0.25 0.25]);
 S_av = zeros(1,1000);
 I_Ax = plot(h2,1:1000,S_av,'b','LineWidth',2);
 
 axis manual
 axis([0 1000 0 0.25/nNeuron])
-title('Spiking Energy')
+set(gca, 'YScale', 'log'); % Set the y-axis to logarithmic scale
+title('Spiking Energy');
 xlabel('Time (ms)');
 ylabel('Energy (a.u.)');
 grid on;
+
 
 colorMap = repmat(linspace(0,0.7,30)',1,3);
 colorMap = [colorMap;[1 1 1];colorMap(end:-1:1,:)];
@@ -297,8 +315,10 @@ vp = -0.5*ones(nNeuron,1);
 Psip = zeros(nNeuron,1);
 vn = -0.5*ones(nNeuron,1);
 Psin = zeros(nNeuron,1);
-
-
+vp = gpuArray(vp);
+Psip = gpuArray(Psip);
+vn = gpuArray(vn);
+Psin = gpuArray(Psin);
 % Hyperparameters
 C = 1; % Spike rate
 Lambda = 5; % Lambda
@@ -320,8 +340,9 @@ win = 900;
 S_hist = zeros(1,win);
 currind = 1;
 spikeenergy = 0;
-
+itercount=0;
 while ishandle(figNumber)
+    itercount=itercount+1;
     for c1 = 1:nSpeed        
         
         % If user data flag is selected
@@ -367,7 +388,7 @@ while ishandle(figNumber)
         % and then reset the membrane potential to threshold thr
         % Find which of the neurons spiked
         
-        indp = find(vp > vth); %Question: No 2 neurons can fire at the same step?
+        indp = find(vp > vth); 
         indn = find(vn > vth);
         Psip(indp) = C;
         Psin(indn) = C;
@@ -405,23 +426,27 @@ while ishandle(figNumber)
 
         iter = mod(iter,100000)+1;
     end
-    for n1 =1:nNeuron
-        set(nAx{n1},'ydata',y(n1,:)+n1) % Update the membrane potential plot
+    if(itercount>10)
+        if(plotMembrane==1)
+            for n1 = 1:nNeuron
+            set(nAx{n1}, 'ydata', gather(y(n1, :)) + n1); % Use gather to move gpuArray to CPU
+            end    
+        end        
+        
+        set(I_Ax, 'ydata', gather(S_av)); % Convert gpuArray to double
+         % Update the input current plot                  
+        set(conn_im,'cdata', gather(Q+I));
+        drawnow
+        itercount=0;
+
     end
-    
-    set(I_Ax,'ydata',S_av) % Update the input current plot   
-    drawnow
-
-    set(conn_im,'cdata',Q+I);
-    drawnow
-
     
     while pauseFlag && ishandle(figNumber)
         drawnow
         pause(0.1)
     end
 end
-% Functions
+%% Functions
     function changepars(source, ~)
         t = source.Tag;
         switch t
@@ -503,11 +528,11 @@ end
         set(inFieldDisp{3},'string',num2str(freq(nDisp)));
         set(inFieldDisp{4},'string',num2str(repeatdata));
         set(inFieldDisp{5},'string',num2str(a(nDisp)));        
-        set(inField{1},'Value',I_input(nDisp));
-        set(inField{2},'Value',ac_amp(nDisp));
-        set(inField{3},'Value',freq(nDisp));
+        set(inField{1},'Value',gather(I_input(nDisp)));
+        set(inField{2},'Value',gather(ac_amp(nDisp)));
+        set(inField{3},'Value',gather(freq(nDisp)));
         set(inField{4},'Value',repeatdata);
-        set(inField{5},'Value',a(nDisp));
+        set(inField{5},'Value',gather(a(nDisp)));
         set(inField{6},'Value',dataflag);
     end
 

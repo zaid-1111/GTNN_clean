@@ -75,7 +75,7 @@
 
 function GTNNLearningDemo
 % function GT_NeuronModel
-plotMembrane = 0;
+plotMembrane = 1;
 numNeuronLimit = 2000;
 % First get the input number of neurons
 prompt = {['Enter number of neurons between 1 and ' num2str(numNeuronLimit)]};

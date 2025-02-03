@@ -1,105 +1,169 @@
 function GTNN_Headless_Sim(nNeuron, T)
-% GTNN_Headless_Sim_Scaled - A scalable version of the GTNN simulation
-% Inputs:
-%   nNeuron - Number of neurons
-%   T       - Total simulation steps
-
 % GTNN_Headless_Sim - A “headless” version of the GTNN demo that
-% runs the simulation purely in code, with no GUI or figures.
+% runs the simulation purely in code, with optional sparse GPU connectivity.
 
-% ----------------------- USER PARAMETERS ----------------------------
+%% ----------------------- USER PARAMETERS ----------------------------
+if mod((nNeuron)/2, 1) ~= 0
+    error('nNeuron must be divisible by 2.');
+end
+
+useGPU        = true;    % Set this to 'true' if we want to run on the GPU
+plotMembrane  = true;    % Whether to show final figures
+nSpeed        = 1;       % Speed multiplier
+dt            = 0.001;   % Simulation timestep
+tau           = 0.01;    % Time constant
+eta           = 0.1;     % Learning rate
+learnFlag     = true;    % Enable learning
+dataflag      = false;   % If true, will use external 'userdata.mat'
+repeatdata    = 100;     % # timesteps for each data vector
+Tiled         = true;    % Enable Tiling
+TileDivisor   = 2;       % Control number of tiles
+sparsityFactor = 0.002;  % Density of connections between tiles
+Lambda        = 5;       % threshold param
+vmax          = 1;       % max membrane potential
+vth           = 0;       % threshold for spiking
+C             = 1;       % amplitude for Psip/Psin on spike
+feedForward   = true;
+feedBack      = true;
 
 
-useGPU        = true;     % Set this to 'true' if we want to run on the GPU
-plotMembrane  = true;    % If we only want to store results, not plot them
-nSpeed        = 1;        % Speed multiplier (like the slider in the GUI)
-dt            = 0.001;    % Simulation timestep
-tau           = 0.01;     % Time constant
-eta           = 0.1;      % Learning rate
-learnFlag     = false;     % Whether to enable learning or not
-dataflag      = false;    % If true, will use external 'userdata.mat'
-repeatdata    = 100;      % # timesteps each data vector is applied
-Tiled =       = true;
+% DC/AC input stimuli
+I_input  = zeros(nNeuron,1);
+I_input(1) = 0.09;           % small DC bias on neuron #1
+ac_amp   = zeros(nNeuron,1); % AC amplitude
+freq     = 5*ones(nNeuron,1);% AC frequency
+a        = ones(nNeuron,1);  % alpha parameter
 
-
-% If not using external data, specify any DC/AC drive here:
-I_input       = zeros(nNeuron,1);   % DC input
-
-%Example DC stimulation on neuron:
-I_input(1)    = 0.09;
-
-ac_amp        = zeros(nNeuron,1);   % AC amplitude
-freq          = 5*ones(nNeuron,1);  % AC frequency
-a             = ones(nNeuron,1);    % "alpha" parameter for each neuron
-% --------------------------------------------------------------------
-
-%  If we want to load user data for training:
+%% ------------------- Load user data if needed -----------------------
 if dataflag
-    load userdata.mat;        % This file must be in the same folder
+    load userdata.mat;        
     [dataLen,dataDim] = size(userdata);
 else
     userdata  = []; 
-    dataLen = 0; 
-    dataDim = 0;
+    dataLen   = 0; 
+    dataDim   = 0;
 end
 
-% Initialize synaptic weight matrix Q, connectivity mask M, identity I
-Q = zeros(nNeuron,nNeuron);
-M = ones(nNeuron,nNeuron);
+%% ------------------- Initialize Q, M, Identity ----------------------
+% Q: the synaptic weight matrix (will be sparse).
+TileSize = nNeuron/TileDivisor;
+Q = 0.5 * randn(nNeuron,nNeuron);
+
+% Optionally tile Q by setting only certain diagonal blocks:
+if Tiled
+    tileSize = nNeuron / TileDivisor;
+    Q_tiled  = sparse(nNeuron,nNeuron);
+    
+    % 1) Copy the main diagonal sub-blocks into Q_tiled:
+    for iBlock = 1:TileDivisor
+        idx = (iBlock-1)*tileSize + (1:tileSize);
+        Q_tiled(idx, idx) = Q(idx, idx);
+    end
+    
+    % 2) Optionally add feed-forward sub-blocks (above diagonal tiles)
+    if feedForward
+        % For each diagonal tile, we place some connections in the next tile up:
+        for iBlock = 1:(TileDivisor - 1)
+            rowIdx = (iBlock-1)*tileSize + (1:tileSize);
+            colIdx = (iBlock)*tileSize   + (1:tileSize);
+            
+            % For example, keep ~10% of these weights at random:
+            mask = (rand(tileSize) < sparsityFactor);
+            Q_tiled(rowIdx, colIdx) = Q(rowIdx, colIdx) .* mask;
+        end
+    end
+    
+    % 3) Optionally add feed-back sub-blocks (below diagonal tiles)
+    if feedBack
+        % For each diagonal tile, we place some connections in the previous tile down:
+        for iBlock = 2:TileDivisor
+            rowIdx = (iBlock-1)*tileSize + (1:tileSize);
+            colIdx = (iBlock-2)*tileSize + (1:tileSize);
+            
+            mask = (rand(tileSize) < sparsityFactor);
+            Q_tiled(rowIdx, colIdx) = Q(rowIdx, colIdx) .* mask;
+        end
+    end
+    
+    % Finally replace Q with Q_tiled:
+    Q = Q_tiled;
+else
+    % Non-tiled case (if Tiled = false), just do Q = sparse(Q)
+    Q = sparse(Q);
+end
+%% Add some Selected feed-forward connections
+% Q(TileSize-2,TileSize+3) = 0.56;
+% Q(TileSize-4,TileSize+6) = 0.78;
+% Q(TileSize-3,TileSize+5) = -0.64;
+
+
+ 
+M = double(Q ~= 0);  % M(i,j) = 1 where Q(i,j)~=0, 0 otherwise This makes only initial connections trainable
+
 I = eye(nNeuron);
 
-% (Optional) pick any custom Q here.  E.g. uncomment:
- Q = 0.5*randn(nNeuron,nNeuron);
-     
-% Q(logical(eye(size(Q)))) = 0;  % zero diagonal
-Qcustom = [0	-0.25	-0.026	0	0	0
-           -0.35	0	-0.14	0	0.13	0
-           -0.24	-0.15	0	0.11	0	0
-            0	0	0.11	    0	0.434	-0.337
-            0	0	0.31	    0.067	0	0.29
-            0	0	0	    -0.42	0.068	0];
-%Q = Qcustom;
-% Make sure everything is on the GPU if desired:
+%% ---------------- Move to GPU if desired ---------------------------
+% We can keep Q as a sparse GPU array.  For all vectors that need
+%   elementwise ">" or other ops, we use dense GPU arrays.
+colorMap = repmat(linspace(0,0.7,30)',1,3);
+colorMap = [colorMap;[1 1 1];colorMap(end:-1:1,:)];
+colorMap(1:30,1) = 1;
+colorMap(32:61,3) = 1;
+if plotMembrane
+    figure;
+    
+    imagesc(Q + eye(nNeuron));
+    colormap(colorMap)    
+    %set(gca,'xtick',1:nNeuron,'ytick',1:nNeuron)
+    ylabel('Post-synaptic')
+    xlabel('Pre-synaptic')
+    title('Initial Connectivity Matrix')
+    caxis([-1 1])
+    caxis manual
+    colorbar
+end
 if useGPU
-    Q       = gpuArray(Q);
-    M       = gpuArray(M);
-    I       = gpuArray(I);
-    I_input = gpuArray(I_input);
-    a       = gpuArray(a);
-    ac_amp  = gpuArray(ac_amp);
-    freq    = gpuArray(freq);
+    Q = gpuArray(Q);      % sparse GPU array
+    M = gpuArray(M);     
+    I = gpuArray(I);      % dense identity
+    I_input = gpuArray(I_input); 
+    a = gpuArray(a);
+    ac_amp = gpuArray(ac_amp);
+    freq = gpuArray(freq);
 end
 
-% State variables
-vp   = -0.5*ones(nNeuron,1,'like',Q);  % Positive membrane potential branch
-vn   = -0.5*ones(nNeuron,1,'like',Q);  % Negative membrane potential branch
-Psip = zeros(nNeuron,1,'like',Q);      % +spike flags
-Psin = zeros(nNeuron,1,'like',Q);      % -spike flags
+%% ---------------- State variables (dense GPU arrays) ---------------
+% DO NOT do 'like', Q because Q is sparse.  We'll create them as dense:
+if useGPU
+    vp   = gpuArray(-0.5*ones(nNeuron,1));  % positive membrane potential
+    vn   = gpuArray(-0.5*ones(nNeuron,1));  % negative membrane potential
+    Psip = gpuArray(zeros(nNeuron,1));      % +spike flags
+    Psin = gpuArray(zeros(nNeuron,1));      % -spike flags
+else
+    vp   = -0.5*ones(nNeuron,1);
+    vn   = -0.5*ones(nNeuron,1);
+    Psip = zeros(nNeuron,1);
+    Psin = zeros(nNeuron,1);
+end
 
-% Logging for energy/spikes.  We store the spiking energy in S_av, etc.
-win        = 900;           % time window for smoothing
-S_hist     = zeros(1,win,'like',Q);
-S_av       = zeros(1,T,'like',Q);
-spikeEnergy = 0;
+%% ----------------- Logging for energy/spikes ------------------------
+win          = 900; 
+S_hist       = zeros(1,win,'like',vp);   % 'like', vp => dense
+S_av         = zeros(1,T,'like',vp);
+spikeEnergy  = 0;
 
-% Extra parameters from the GUI version
-Lambda = 5;   % threshold parameter
-vmax   = 1;   % max membrane potential
-vth    = 0;   % threshold for spiking
-C      = 1;   % amplitude assigned to Psip / Psin upon spike
+%% ----------------- Hyperparameters for GTNN ------------------------
 
-% Create variables for user-data iteration
+%% ----------------- (Optional) for user-data iteration --------------
 currentIndex  = 1;
 currentCount  = 0;
-output        = zeros(dataLen,1);  % if we're going to store data usage
+output        = zeros(dataLen,1,'like',vp);
 
-% Pre-allocate a buffer for logging membrane potentials (optional).
-%  If we only need final Q or final spiking rates, we can skip this.
-ylog = zeros(nNeuron, T, 'like', Q);
+%% ----------------- Pre-allocate ylog for debugging ------------------
+ylog = zeros(nNeuron,T,'like',vp);
 
-% --------------- MAIN SIMULATION LOOP ---------------
-% We do T steps, each possibly with multiple internal updates (nSpeed).
-fprintf('Starting simulation with %d neurons for %d steps...\n',nNeuron,T);
+%% ----------------- MAIN SIMULATION LOOP -----------------------------
+fprintf('Starting simulation with %d neurons for %d steps...\n', nNeuron, T);
 iter = 1;
 
 for t = 1:T
@@ -107,12 +171,12 @@ for t = 1:T
     % Repeat "nSpeed" times each ms-step if desired
     for subIter = 1:nSpeed
         
-        % Decide on input current (from either data or user‐specified AC/DC)
+        %% 1) Compute net input current
         if dataflag
             % If using training data from 'userdata'
             if currentCount > repeatdata
                 if learnFlag
-                    currentIndex = randi(dataLen,1);   % pick random pattern
+                    currentIndex = randi(dataLen,1);
                 else
                     currentIndex = currentIndex + 1;
                     if currentIndex > dataLen
@@ -122,30 +186,23 @@ for t = 1:T
                 currentCount = 0;
             end
             currentCount = currentCount + 1;
-            if useGPU
-            netI = gpuArray(netI);
-            end
-
-            % "userdata" might have fewer dims than nNeuron, so pad
+            
             if dataDim >= nNeuron
                 netI = userdata(currentIndex,1:nNeuron).';
             else
-                netI = [userdata(currentIndex,:), ...
-                        zeros(1,nNeuron - dataDim)].';
+                netI = [userdata(currentIndex,:), zeros(1,nNeuron - dataDim)].';
             end
-            % Optionally add a constant offset:
-            netI(end) = 0.1;  % from the old GUI example
+            netI(end) = 0.1;  
+            
+            if useGPU
+                netI = gpuArray(netI);
+            end
         else
-            % If not using external data, just AC+DC
+            % AC+DC
             netI = I_input + ac_amp .* sin(2*pi*freq*iter/1000);
         end
 
-        % Convert to GPU if we are using GPU mode:
-        
-
-        % -- Core spiking logic from the original code --
-
-        % 1) Check for spiking
+        %% 2) Check for spiking
         spikedP = (vp > vth);
         spikedN = (vn > vth);
         Psip(spikedP) = C;
@@ -153,57 +210,53 @@ for t = 1:T
         vp(spikedP)   = vth;
         vn(spikedN)   = vth;
 
-        % 2) Optionally record the new membrane potential for debugging
-        ylog(:,t) = vp;   % or something else (like y in GUI code)
-        % 3) Calculate the gradient
+        %% 3) Optionally record the new membrane potential
+        ylog(:,t) = vp; 
+        
+        %% 4) Calculate the gradient
+        %   Q*(vp - vn) is valid if Q is sparse (GPU) and (vp - vn) is dense (GPU).
         Gp = vp - netI + Q*(vp - vn) + Psip;
         Gn = vn + netI - Q*(vp - vn) + Psin;
-        % 4) Update vp, vn
+        
+        %% 5) Update vp, vn
         vp = a.*vp + (dt/tau)*(((vp.^2 - vmax^2).*Gp)./(-vp.*Gp + Lambda*vmax));
         vn = a.*vn + (dt/tau)*(((vn.^2 - vmax^2).*Gn)./(-vn.*Gn + Lambda*vmax));
 
-        % 5) Compute spiking energy
-        numSpikes = sum(spikedP) + sum(spikedN);
-        S_hist = [S_hist(2:end), numSpikes];   % shift in sliding window
-        spikeEnergy = sum(S_hist)/(2*win*nNeuron);        
-        S_av(t) = spikeEnergy;
+        %% 6) Spiking energy
+        numSpikes    = sum(spikedP) + sum(spikedN);
+        S_hist       = [S_hist(2:end), numSpikes];
+        spikeEnergy  = sum(S_hist)/(2*win*nNeuron);        
+        S_av(t)      = spikeEnergy;
 
-        % 6) Learning
+        %% 7) Learning
         if learnFlag
-            %  Weight update (Psip-Psin)*(vp-vn)'
             Q = Q + 0.5*eta * M .* ((Psip - Psin)*(vp - vn)');
         end
 
-        % 7) Reset spike flags
+        %% 8) Reset spike flags
         Psip(:) = 0;
         Psin(:) = 0;
 
-        % Optional: store some result if dataflag==1 and learnFlag==0
+        %% If using data but not learning, store energy
         if dataflag && ~learnFlag
             output(currentIndex) = spikeEnergy;
         end
-
+        
         iter = iter + 1;        
-    end % of sub-iterations
-
-end % of T steps
-
-% Pull back GPU arrays to CPU memory if needed
-if useGPU
-    Q        = gather(Q);
-    ylog     = gather(ylog);
-    S_av     = gather(S_av);
+    end
 end
 
-% Report final connectivity matrix, energy, etc.
+%% ----------------- Pull back to CPU if needed -----------------------
+if useGPU
+    Q    = gather(Q);
+    ylog = gather(ylog);
+    S_av = gather(S_av);
+end
+
+%% ----------------- Final Stats & Optional Plot ----------------------
 fprintf('Simulation complete.\n');
 fprintf('Final mean spiking energy = %g.\n', mean(S_av(end-50:end)));
 
-% If we want a quick plot at the end, optionally do it here:
-colorMap = repmat(linspace(0,0.7,30)',1,3);
-colorMap = [colorMap;[1 1 1];colorMap(end:-1:1,:)];
-colorMap(1:30,1) = 1;
-colorMap(32:61,3) = 1;
 if plotMembrane
     figure;  
     subplot(1,2,1);
@@ -211,22 +264,19 @@ if plotMembrane
     imagesc(Q + eye(nNeuron));
     colormap(colorMap)
     
-    set(gca,'xtick',1:nNeuron,'ytick',1:nNeuron)
+    %set(gca,'xtick',1:nNeuron,'ytick',1:nNeuron)
     ylabel('Post-synaptic')
     xlabel('Pre-synaptic')
     title('Connectivity Matrix')
     caxis([-1 1])
     caxis manual
     colorbar
-
-
+    
     subplot(1,2,2);
     plot(S_av,'LineWidth',2);
     %set(gca,'YScale','log');
     xlabel('Time step'); ylabel('Spiking Energy');
-    grid on; title('Spiking Energy (log scale)');
+    grid on; title('Spiking Energy');
 end
 
-% If needed, save results
-% save('GTNN_results.mat','Q','ylog','S_av','-v7.3');
 end

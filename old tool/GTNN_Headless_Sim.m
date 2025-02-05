@@ -1,30 +1,35 @@
-function GTNN_Headless_Sim(nNeuron, T)
-% GTNN_Headless_Sim - A “headless” version of the GTNN demo that
-% runs the simulation purely in code, with optional sparse GPU connectivity.
+function GTNN_Headless_Sim()
+    % GTNN_Headless_Sim - Reads simulation parameters from a JSON config file
+    % and runs the simulation with those settings.
 
-%% ----------------------- USER PARAMETERS ----------------------------
-if mod((nNeuron)/2, 1) ~= 0
-    error('nNeuron must be divisible by 2.');
-end
+    % 1) Read the JSON config file
+    fid = fopen("configFile.json");
+    raw = fread(fid, inf);
+    fclose(fid);
+    jsonText = char(raw');
+    cfg = jsondecode(jsonText);  % Convert JSON to MATLAB struct
 
-useGPU        = true;    % Set this to 'true' if we want to run on the GPU
-plotMembrane  = true;    % Whether to show final figures
-nSpeed        = 1;       % Speed multiplier
-dt            = 0.001;   % Simulation timestep
-tau           = 0.01;    % Time constant
-eta           = 0.1;     % Learning rate
-learnFlag     = true;    % Enable learning
-dataflag      = false;   % If true, will use external 'userdata.mat'
-repeatdata    = 100;     % # timesteps for each data vector
-Tiled         = true;    % Enable Tiling
-TileDivisor   = 2;       % Control number of tiles
-sparsityFactor = 0.002;  % Density of connections between tiles
-Lambda        = 5;       % threshold param
-vmax          = 1;       % max membrane potential
-vth           = 0;       % threshold for spiking
-C             = 1;       % amplitude for Psip/Psin on spike
-feedForward   = true;
-feedBack      = true;
+    % 2) Extract required parameters
+    nNeuron        = cfg.nNeuron;
+    T              = cfg.T;
+    useGPU         = cfg.useGPU;
+    plotMembrane   = cfg.plotMembrane;
+    nSpeed         = cfg.nSpeed;
+    dt             = cfg.dt;
+    tau            = cfg.tau;
+    eta            = cfg.eta;
+    learnFlag      = cfg.learnFlag;
+    dataflag       = cfg.dataflag;
+    repeatdata     = cfg.repeatdata;
+    Tiled          = cfg.Tiled;
+    TileDivisor    = cfg.TileDivisor;
+    sparsityFactor = cfg.sparsityFactor;
+    Lambda         = cfg.Lambda;
+    vmax           = cfg.vmax;
+    vth            = cfg.vth;
+    C              = cfg.C;
+    feedForward    = cfg.feedForward;
+    feedBack       = cfg.feedBack;
 
 
 % DC/AC input stimuli

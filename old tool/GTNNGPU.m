@@ -278,7 +278,7 @@ I_Ax = plot(h2,1:1000,S_av,'b','LineWidth',2);
 
 axis manual
 axis([0 1000 0 0.25/nNeuron])
-set(gca, 'YScale', 'log'); % Set the y-axis to logarithmic scale
+%set(gca, 'YScale', 'log'); % Set the y-axis to logarithmic scale
 title('Spiking Energy');
 xlabel('Time (ms)');
 ylabel('Energy (a.u.)');
@@ -328,7 +328,7 @@ vth = 0;
 
 % Simulation parameters
 dt = 0.001; % Sampling time in seconds
-T = 500; % Total simulation time in seconds
+T = 1000; % Total simulation time in seconds
 tau = 0.01; % Time-constant
 eta = 0.1; % Learning rate
 iter = 1; % simulation counter
@@ -346,42 +346,39 @@ while ishandle(figNumber)
     for c1 = 1:nSpeed        
         
         % If user data flag is selected
-        if dataflag > 0,
-            % Pick a random training data and repeat for repeatdata
+        if dataflag > 0
+            % --- Advance to the next frame if you have repeated the current one 'repeatdata' times ---
             if (currentcount > repeatdata)
-               if learnFlag > 0
-                  currind = randi(datalen,1);
-               else
-                  currind = currind + 1;
-                  output(currind) = spikeenergy;
-                  if (currind > datalen)
-                      currind = 1;
-                  end
-                  
-                  % Reset all the membrane potentials
-                  %vp = -0.5*ones(nNeuron,1);
-                  %Psip = zeros(nNeuron,1);
-                  %vn = -0.5*ones(nNeuron,1);
-                  %Psin = zeros(nNeuron,1);
-               end
-               currentcount = 0;
+                currind = currind + 1;          % Move to next frame sequentially
+                output(currind) = spikeenergy;  %Store spike energy w.r.t. current frame
+                
+                % Wrap around if we exceed total frames
+                if (currind > size(userdata, 3))
+                    currind = 1;
+                end
+                currentcount = 0;
             end
-            if datadim >= nNeuron-1,
-               % data dimension is greater than the number of neurons
-               % then choose only datadim inputs
-               netI = [userdata(currind,1:nNeuron) 0.1]';
-               %netI = [0.1 userdata(currind,2:nNeuron) userdata(currind,1)]';              
-            else
-               % if data dimension is smaller than number of neurons
-               % then pad with zeros
-               netI = [userdata(currind,:) zeros(1,nNeuron-1-datadim) 0.1]';
-               %netI = [0.1 userdata(currind,2:datadim) zeros(1,nNeuron-1-datadim) userdata(currind,1)]';
-            end
-            currentcount = currentcount + 1;
+        
+            % --- Extract current frame and flatten in row-major order ---
+            % 1) Extract 2D frame: userdata(:,:,currind) is of size n x n
+            % 2) Transpose -> row-major 
+            % 3) Reshape to 1 x (n*n)
+            frameVector = reshape(userdata(:,:,currind).', 1, []);
+        
+            % --- Scale values to [0,1] if userdata is uint8 [0..255]. ---
+            frameVector = double(frameVector)/255;  % Now it's double [0..1]
+        
+            % --- Construct netI ---
+            % If nNeuron == n*n, then netI is simply that flattened frame          
+            netI = [frameVector]';  % Make it a column vector
+        
+            currentcount = currentcount + 1; % Count how many times we've presented the current frame
+        
         else
             % External stimuli current - variable b
-            netI = I_input+ac_amp.*sin(2*pi*freq*iter/1000); % Net differential input current
-        end;
+            netI = I_input + ac_amp.*sin(2*pi*freq*iter/1000); 
+        end
+
         
         %% Network Simulation Here
         % ind is the flag that indicates which neurons should fire
@@ -426,7 +423,7 @@ while ishandle(figNumber)
 
         iter = mod(iter,100000)+1;
     end
-    if(itercount>10)
+    if(itercount>5)
         if(plotMembrane==1)
             for n1 = 1:nNeuron
             set(nAx{n1}, 'ydata', gather(y(n1, :)) + n1); % Use gather to move gpuArray to CPU

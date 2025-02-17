@@ -8,7 +8,7 @@ function GTNN_Headless_Sim()
     fclose(fid);
     jsonText = char(raw');
     cfg = jsondecode(jsonText);  % Convert JSON to MATLAB struct
-
+    
     % 2) Extract required parameters
     nNeuron        = cfg.nNeuron;
     T              = cfg.T;

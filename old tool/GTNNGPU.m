@@ -114,7 +114,7 @@ I = eye(nNeuron,nNeuron);
 I_input = 0*ones(nNeuron,1);
 a = ones(nNeuron,1);
 nSpeed = 1;
-L = 1000;
+L = 2000;
 repeatdata = 100;
 ac_amp = zeros(nNeuron,1);
 freq = 5*ones(nNeuron,1);
@@ -217,6 +217,13 @@ uicontrol('Parent',pnl_input, 'Units','normalized', ...
         'Position',[0.62 ycoord(8)+0.02 0.1 yHt+0.01],...
         'string','save','tag','save','Callback',@changepars);
 
+% Decode Button
+uicontrol('Parent',pnl_input, ...
+    'Units','normalized', ...
+    'Position',[0.72 ycoord(8)+0.02 0.1 yHt+0.01], ...
+    'string','decode','tag','decode','Callback',@changepars);
+
+
 
 if nNeuron>1
     uicontrol('Parent',pnl_input,'Style','text', 'Units','normalized', ...
@@ -273,11 +280,11 @@ if(plotMembrane==1)
     set(gca,'ytick',1:nNeuron)
 end
 h2 = axes('Position',[0.7 0.15 0.25 0.25]);
-S_av = zeros(1,1000);
-I_Ax = plot(h2,1:1000,S_av,'b','LineWidth',2);
+S_av = zeros(1,L);
+I_Ax = plot(h2,1:L,S_av,'b','LineWidth',2);
 
 axis manual
-axis([0 1000 0 0.25/nNeuron])
+axis([0 L 0 0.25/nNeuron])
 %set(gca, 'YScale', 'log'); % Set the y-axis to logarithmic scale
 title('Spiking Energy');
 xlabel('Time (ms)');
@@ -326,13 +333,13 @@ vmax = 1; % Maximum membrane potential
 vth = 0;
 
 
-% Simulation parameters
+%% Simulation parameters
 dt = 0.001; % Sampling time in seconds
-T = 1000; % Total simulation time in seconds
-tau = 0.01; % Time-constant
+T = L; % Total simulation time in seconds
+tau = 0.02; % Time-constant
 eta = 0.1; % Learning rate
 iter = 1; % simulation counter
-Titer = 100; % Duration to perform forward and backward pass.
+Titer = 50; % Duration to perform forward and backward pass.
 
 currind = 1;
 currentcount = 0;
@@ -373,7 +380,7 @@ while ishandle(figNumber)
             netI = [frameVector]';  % Make it a column vector
         
             currentcount = currentcount + 1; % Count how many times we've presented the current frame
-        
+            
         else
             % External stimuli current - variable b
             netI = I_input + ac_amp.*sin(2*pi*freq*iter/1000); 
@@ -384,7 +391,7 @@ while ishandle(figNumber)
         % ind is the flag that indicates which neurons should fire
         % and then reset the membrane potential to threshold thr
         % Find which of the neurons spiked
-        
+        peakSpikingEnergy = 1e-3;  % Keeps track of the maximum spiking energy observed
         indp = find(vp > vth); 
         indn = find(vn > vth);
         Psip(indp) = C;
@@ -433,6 +440,9 @@ while ishandle(figNumber)
         set(I_Ax, 'ydata', gather(S_av)); % Convert gpuArray to double
          % Update the input current plot                  
         set(conn_im,'cdata', gather(Q+I));
+        currentMax = max(S_av);               % The max in the current 1000-point window
+        peakSpikingEnergy = max(peakSpikingEnergy, currentMax);
+        set(h2, 'YLim', [0 gather(peakSpikingEnergy)]);
         drawnow
         itercount=0;
 
@@ -515,6 +525,47 @@ end
                 Psip = zeros(nNeuron,1);
                 vn = -0.5*ones(nNeuron,1);
                 Psin = zeros(nNeuron,1);
+           
+         %Decode Button Function  
+         
+            case 'decode'
+                decodeFig = figure;
+                colormap(colorMap)
+                title('Decoded Frame from Q^{-1} (v_p - v_n)');
+                caxis([-1 1])
+                caxis manual
+                colorbar
+                % -- 1) Load your trained Q from Qprev --
+                % Make sure Qprev.mat is in the same folder or that
+                % you provide a full path. The saved file must contain
+                % the variable Q, which is your trained weight matrix.
+                load('Qprev','Q');
+            
+                % -- 2) Compute Q^-1 or pseudo-inverse --
+                % If Q is truly invertible, use inv(Q). 
+                Qinv = inv(Q); 
+                %Qinv = pinv(Q);
+            
+                % -- 3) Multiply by the current membrane potentials vp - vn --
+                % vp - vn is a (nNeuron x 1) column vector
+                while ishandle(decodeFig)
+                b_hypothesis = Qinv * (vp - vn);
+            
+                frame_est = reshape(b_hypothesis, [8,8])'; 
+            
+                % -- 5) Display the decoded frame --
+                imagesc(frame_est);
+                colormap(colorMap)
+                title('Decoded Frame from Q^{-1} (v_p - v_n)');
+                caxis([-1 1])
+                caxis manual
+                colorbar
+                pause(0.1)
+                end
+
+                
+
+
         end
         displayParams;
     end
